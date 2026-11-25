@@ -6,6 +6,7 @@ export type StockData = {
   name: string;
   code: string;
   sector: string;
+  historySource: "BSE" | "NSE";
   metrics: Metrics;
   history: { t: number[]; c: number[] };
   news: NewsItem[];

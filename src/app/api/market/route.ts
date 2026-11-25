@@ -10,10 +10,25 @@ export async function GET() {
   await connection();
   const [stocks, indices] = await Promise.all([
     mapLimit(UNIVERSE, 4, async (def) => {
-      const [series, news] = await Promise.all([fetchChart(def.yahoo, "1y"), fetchNews(`${def.name} share`, 6)]);
+      const bse = await fetchChart(def.yahoo, "1y");
+      let series = bse;
+      let historySource: "BSE" | "NSE" = "BSE";
+      // Yahoo's BSE feed has gaps for some scrips. Fall back to the same company's NSE
+      // history (prices track BSE within paise) and keep the latest BSE price.
+      if (!bse || bse.closes.length < 150) {
+        const nse = await fetchChart(def.yahoo.replace(/\.BO$/, ".NS"), "1y");
+        if (nse && nse.closes.length > (bse?.closes.length ?? 0)) {
+          series = nse;
+          historySource = "NSE";
+          if (bse) series.closes[series.closes.length - 1] = bse.closes[bse.closes.length - 1];
+        }
+      }
       if (!series) return null;
+      let news = await fetchNews(def.name, 6);
+      if (!news.length) news = await fetchNews(def.yahoo, 6);
       return {
         ...def,
+        historySource,
         metrics: computeMetrics(series.closes),
         history: { t: series.timestamps, c: series.closes.map((c) => Math.round(c * 100) / 100) },
         news,

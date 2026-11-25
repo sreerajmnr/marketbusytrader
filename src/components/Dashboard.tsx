@@ -471,7 +471,7 @@ function Detail({ s, acct, saveAcct }: { s: Ranked; acct: PaperAccount; saveAcct
       <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 lg:col-span-2">
         <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h2 className="text-lg font-bold">{s.name}</h2>
-          <span className="text-sm text-slate-600">BSE {s.code} · {s.sector}</span>
+          <span className="text-sm text-slate-600">BSE {s.code} · {s.sector}{s.historySource === "NSE" ? " · chart history from NSE listing" : ""}</span>
           <span className="ml-auto text-xl font-bold tabular-nums">{inr(m.price)}</span>
           <span className={`text-sm font-semibold tabular-nums ${tone(m.changePct)}`}>{pct(m.changePct)}</span>
         </div>
