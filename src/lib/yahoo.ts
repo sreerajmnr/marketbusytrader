@@ -7,52 +7,68 @@ export type Series = {
   symbol: string;
   timestamps: number[];
   closes: number[];
-  prevClose?: number;
   currency?: string;
   marketState?: string;
 };
 
-export async function fetchChart(symbol: string, range = "1y"): Promise<Series | null> {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d&includePrePost=false`;
-  try {
-    const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" }, cache: "no-store" });
-    if (!res.ok) return null;
-    const json = await res.json();
-    const r = json?.chart?.result?.[0];
-    if (!r) return null;
-    const ts: number[] = r.timestamp ?? [];
-    const raw: (number | null)[] = r.indicators?.quote?.[0]?.close ?? [];
-    const timestamps: number[] = [];
-    const closes: number[] = [];
-    raw.forEach((c, i) => {
-      if (c != null && Number.isFinite(c)) {
-        timestamps.push(ts[i]);
-        closes.push(c);
-      }
-    });
-    // Prefer the live market price for the last point when available.
-    const live = r.meta?.regularMarketPrice;
-    if (typeof live === "number" && closes.length) closes[closes.length - 1] = live;
-    if (closes.length < 2) return null;
-    return {
-      symbol,
-      timestamps,
-      closes,
-      prevClose: r.meta?.chartPreviousClose && range === "1d" ? r.meta.chartPreviousClose : undefined,
-      currency: r.meta?.currency,
-      marketState: r.meta?.marketState,
-    };
-  } catch {
-    return null;
+const HOSTS = ["query1.finance.yahoo.com", "query2.finance.yahoo.com"];
+const RANGE_DAYS: Record<string, number> = { "5d": 7, "1y": 400 };
+
+async function getJson(path: string): Promise<unknown | null> {
+  for (const host of HOSTS) {
+    try {
+      const res = await fetch(`https://${host}${path}`, {
+        headers: { "User-Agent": UA, Accept: "application/json" },
+        cache: "no-store",
+      });
+      if (res.ok) return await res.json();
+    } catch {}
   }
+  return null;
+}
+
+function parseChart(json: unknown, symbol: string): Series | null {
+  const r = (json as { chart?: { result?: Record<string, any>[] } })?.chart?.result?.[0]; // eslint-disable-line @typescript-eslint/no-explicit-any
+  if (!r) return null;
+  const ts: number[] = r.timestamp ?? [];
+  const raw: (number | null)[] = r.indicators?.quote?.[0]?.close ?? [];
+  const timestamps: number[] = [];
+  const closes: number[] = [];
+  raw.forEach((c, i) => {
+    if (c != null && Number.isFinite(c)) {
+      timestamps.push(ts[i]);
+      closes.push(c);
+    }
+  });
+  // Prefer the live market price for the last point when available.
+  const live = r.meta?.regularMarketPrice;
+  if (typeof live === "number" && closes.length) closes[closes.length - 1] = live;
+  if (closes.length < 2) return null;
+  return { symbol, timestamps, closes, currency: r.meta?.currency, marketState: r.meta?.marketState };
+}
+
+export async function fetchChart(symbol: string, range = "1y"): Promise<Series | null> {
+  // Use explicit period1/period2: Yahoo sometimes truncates `range=1y` responses to a few days.
+  const now = Math.floor(Date.now() / 1000);
+  const from = now - (RANGE_DAYS[range] ?? 400) * 86400;
+  const minPoints = range === "1y" ? 150 : 2;
+  const paths = [
+    `/v8/finance/chart/${encodeURIComponent(symbol)}?period1=${from}&period2=${now}&interval=1d&includePrePost=false&events=div%2Csplit`,
+    `/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d&includePrePost=false`,
+  ];
+  let best: Series | null = null;
+  for (const path of paths) {
+    const s = parseChart(await getJson(path), symbol);
+    if (s && (!best || s.closes.length > best.closes.length)) best = s;
+    if (best && best.closes.length >= minPoints) break;
+  }
+  return best;
 }
 
 export async function fetchNews(query: string, count = 6): Promise<NewsItem[]> {
-  const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=0&newsCount=${count}`;
+  const path = `/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=0&newsCount=${count}`;
   try {
-    const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" }, cache: "no-store" });
-    if (!res.ok) return [];
-    const json = await res.json();
+    const json = (await getJson(path)) as { news?: unknown[] } | null;
     const items: unknown[] = json?.news ?? [];
     return items
       .map((n) => {

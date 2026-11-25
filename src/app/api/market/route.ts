@@ -9,8 +9,8 @@ export async function GET() {
   // Always run at request time; responses are cached at the CDN via Cache-Control below.
   await connection();
   const [stocks, indices] = await Promise.all([
-    mapLimit(UNIVERSE, 6, async (def) => {
-      const [series, news] = await Promise.all([fetchChart(def.yahoo, "1y"), fetchNews(`${def.name}`, 6)]);
+    mapLimit(UNIVERSE, 4, async (def) => {
+      const [series, news] = await Promise.all([fetchChart(def.yahoo, "1y"), fetchNews(`${def.name} share`, 6)]);
       if (!series) return null;
       return {
         ...def,
